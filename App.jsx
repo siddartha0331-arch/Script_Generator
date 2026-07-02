@@ -719,7 +719,7 @@ export default function SqlScriptGenerator() {
                             padding: "4px 0",
                             color: theme.textPrimary,
                             fontWeight: 700,
-                            fontSize: "11px",
+                            fontSize: "10px",
                             textTransform: "uppercase",
                           }}
                         >
