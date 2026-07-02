@@ -63,8 +63,8 @@ const buildRowScript = (tableName, insertHeaders, row, keyColumns) => {
     ` BEGIN \n` +
     ` INSERT dbo.${tableName} (${columnList})\n` +
     ` VALUES (${valueList})\n` +
-    ` END \n` +
-    ` GO\n`
+    ` END \n` 
+    
   );
 };
 
