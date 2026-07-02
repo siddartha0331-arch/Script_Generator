@@ -1140,5 +1140,6 @@ export default function SqlScriptGenerator() {
         )}
       </div>
     </div>
+    </div>
   );
 }
