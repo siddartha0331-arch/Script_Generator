@@ -479,6 +479,16 @@ export default function SqlScriptGenerator() {
     }
   };
 
+  const [collapsedFiles, setCollapsedFiles] = useState(new Set());
+
+  const toggleCollapse = (fileName) => {
+    setCollapsedFiles(prev => {
+      const next = new Set(prev);
+      next.has(fileName) ? next.delete(fileName) : next.add(fileName);
+      return next;
+    });
+  };
+
   const reset = () => {
     setSheets([]);
     setConfigs({});
@@ -518,36 +528,52 @@ export default function SqlScriptGenerator() {
         width: "100%",
         boxSizing: "border-box",
         color: theme.textPrimary,
-        padding: "24px 28px",
+        padding: "0 28px 24px 28px",
       }}
     >
+      {/* Add a full-width header strip if you want the blue to go to the edge */}
+    <div style={{ 
+      width: "100%", 
+      background: "#fff", // Matches your white panel theme
+      padding: "20px 0", 
+      marginBottom: "20px",
+      borderBottom: `1px solid ${theme.cardBorder}`
+    }}>
       <div style={{ maxWidth: 1440, margin: "0 auto" }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: `linear-gradient(135deg, ${theme.brandBlue}, ${theme.brandBlueDark})`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Database size={20} color="#FFFFFF" />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+  
+          {/* Left side: Icon + Title */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: `linear-gradient(135deg, ${theme.accentOrange}, ${theme.accentOrangeDark})`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Database size={20} color="#FFFFFF" />
+            </div>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.01em", color: theme.textPrimary }}>
+                SQL Script Generator
+              </h1>
+              <p style={{ fontSize: 13, color: theme.textSecondary, margin: 0 }}>
+                Convert spreadsheet data to database-ready SQL in seconds.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.01em", color: theme.textPrimary }}>
-              SQL Script Generator
-            </h1>
-            <p style={{ fontSize: 13, color: theme.textSecondary, margin: 0 }}>
-              Convert spreadsheet data to database-ready SQL in seconds.
-            </p>
+          {/* Right side: Logo */}
+          <div style={{ padding: "8px 16px", background: "#fff", borderRadius: 8, border: `1px solid ${theme.cardBorder}` }}>
+            <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAAAoCAYAAAA2cfJIAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyJpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMy1jMDExIDY2LjE0NTY2MSwgMjAxMi8wMi8wNi0xNDo1NjoyNyAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNiAoV2luZG93cykiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6OTc3NjM3NjE1QzcyMTFFQjg5NTFBQzU1NERDNTUzQjMiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6OTc3NjM3NjI1QzcyMTFFQjg5NTFBQzU1NERDNTUzQjMiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDo5Nzc2Mzc1RjVDNzIxMUVCODk1MUFDNTU0REM1NTNCMyIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDo5Nzc2Mzc2MDVDNzIxMUVCODk1MUFDNTU0REM1NTNCMyIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PlP0RSQAAAunSURBVHja7FwLcFTl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" alt="Logo" style={{ height: 30, display: "block" }} />
           </div>
         </div>
-
+          
         {/* Upload zone */}
         {sheets.length === 0 && (
           <div
@@ -676,85 +702,90 @@ export default function SqlScriptGenerator() {
                   Sheets
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {fileNames.map((fn, fileIdx) => {
+                  {fileNames.map((fn) => {
                     const sheetsForFile = sheets.filter((s) => s.sourceFile === fn);
-                    if (sheetsForFile.length === 0) return null;
+                    const isCollapsed = collapsedFiles.has(fn);
+              
                     return (
-                      <div key={fn}>
-                        {fileNames.length > 1 && (
-                          <p
+                      <div key={fn} style={{ marginBottom: "8px" }}>
+                        {/* File Name Header */}
+                        <div
+                          onClick={() => toggleCollapse(fn)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            cursor: "pointer",
+                            padding: "4px 0",
+                            color: theme.textPrimary,
+                            fontWeight: 700,
+                            fontSize: "11px",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          <ChevronDown
+                            size={12}
                             style={{
-                              fontSize: 10.5,
-                              color: theme.textMuted,
-                              margin: fileIdx === 0 ? "0 0 5px" : "12px 0 5px",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
+                              transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                              transition: "transform 0.2s",
                             }}
-                            title={fn}
-                          >
-                            {fn}
-                          </p>
-                        )}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {sheetsForFile.map((s) => {
-                            const cfg = configs[s.id];
-                            const isActive = s.id === activeId;
-                            return (
-                              <div
-                                key={s.id}
-                                onClick={() => setActiveId(s.id)}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  padding: "8px 10px",
-                                  borderRadius: 8,
-                                  borderLeft: isActive ? `3px solid ${theme.brandBlue}` : "3px solid transparent",
-                                  border: isActive ? `1px solid ${theme.brandBlueBorder}` : "1px solid transparent",
-                                  borderLeftWidth: 3,
-                                  borderLeftColor: isActive ? theme.brandBlue : "transparent",
-                                  background: isActive ? theme.brandBlueLight : "transparent",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-                                  <Table2 size={13} color={isActive ? theme.brandBlue : theme.textMuted} style={{ flexShrink: 0 }} />
-                                  <span
-                                    style={{
-                                      fontSize: 12.5,
-                                      fontWeight: isActive ? 700 : 500,
-                                      color: isActive ? theme.brandBlueDark : theme.textPrimary,
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {cfg?.tableName || s.originalName}
-                                  </span>
-                                  {cfg?.generated && <CheckCircle2 size={12} color={theme.success} style={{ flexShrink: 0 }} />}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteSheet(s.id);
-                                  }}
-                                  title="Remove this table"
+                          />
+                          {fn}
+                        </div>
+              
+                        {/* Table List */}
+                        {!isCollapsed && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                            {sheetsForFile.map((s) => {
+                              const cfg = configs[s.id];
+                              const isActive = s.id === activeId;
+                              return (
+                                <div
+                                  key={s.id}
+                                  onClick={() => setActiveId(s.id)}
                                   style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: theme.textMuted,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "8px 10px",
+                                    borderRadius: 8,
+                                    borderLeft: isActive ? `3px solid ${theme.brandBlue}` : "3px solid transparent",
+                                    border: isActive ? `1px solid ${theme.brandBlueBorder}` : "1px solid transparent",
+                                    background: isActive ? theme.brandBlueLight : "transparent",
                                     cursor: "pointer",
-                                    padding: 2,
-                                    flexShrink: 0,
                                   }}
                                 >
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                                    <Table2 size={13} color={isActive ? theme.brandBlue : theme.textMuted} style={{ flexShrink: 0 }} />
+                                    <span
+                                      style={{
+                                        fontSize: 12.5,
+                                        fontWeight: isActive ? 700 : 500,
+                                        color: isActive ? theme.brandBlueDark : theme.textPrimary,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {cfg?.tableName || s.originalName}
+                                    </span>
+                                    {cfg?.generated && <CheckCircle2 size={12} color={theme.success} style={{ flexShrink: 0 }} />}
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteSheet(s.id);
+                                    }}
+                                    title="Remove this table"
+                                    style={{ background: "none", border: "none", color: theme.textMuted, cursor: "pointer", padding: 2, flexShrink: 0 }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
