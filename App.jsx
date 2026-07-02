@@ -543,7 +543,7 @@ export default function SqlScriptGenerator() {
               SQL Script Generator
             </h1>
             <p style={{ fontSize: 13, color: theme.textSecondary, margin: 0 }}>
-              Sheet name suggests the table name — you can rename it. Row 1 becomes the columns.
+              Convert spreadsheet data to database-ready SQL in seconds.
             </p>
           </div>
         </div>
