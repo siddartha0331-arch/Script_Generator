@@ -375,6 +375,15 @@ export default function SqlScriptGenerator() {
   const generateForActiveSheet = () => {
     if (!activeSheet) return;
     const cfg = configs[activeSheet.id];
+    for (const col of cfg.keyColumns) {
+      const hasEmpty = activeSheet.rows.some(
+        (row) => row[col] === null || row[col] === undefined || String(row[col]).trim() === ""
+      );
+      if (hasEmpty) {
+        setError(`Error: The column "${col}" selected in your WHERE clause contains empty values. Please clean your data.`);
+        return; 
+      }
+    }
     if (!cfg.tableName.trim()) {
       setError("Table name can't be empty.");
       return;
@@ -697,9 +706,9 @@ export default function SqlScriptGenerator() {
                   })}
                 </div>
               </div>
-
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: "1 1 380px", minWidth: 300 }}>
               {/* MIDDLE: configuration */}
-              <div style={{ ...panelStyle, flex: "1 1 320px", minWidth: 300 }}>
+              <div style={{ ...panelStyle, width: "100%" }}>
                 {!activeSheet ? (
                   <p style={{ fontSize: 13, color: "#7C8AA5" }}>No sheet selected.</p>
                 ) : (
@@ -734,7 +743,7 @@ export default function SqlScriptGenerator() {
 
                     {/* Key column dropdown — change #1 */}
                     <label style={{ fontSize: 12, color: "#7C8AA5", display: "block", marginBottom: 6 }}>
-                      Key column(s) for duplicate check (WHERE clause)
+                      IF NOT EXISTS - Unique Key
                     </label>
                     <div style={{ marginBottom: 16 }}>
                       <MultiSelectDropdown
@@ -834,7 +843,7 @@ export default function SqlScriptGenerator() {
               </div>
 
               {/* RIGHT: output + export */}
-              <div style={{ ...panelStyle, flex: "1 1 380px", minWidth: 320 }}>
+              <div style={{ ...panelStyle, width: "100%"}}>
                 <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7C8AA5", margin: "0 0 12px" }}>
                   Output
                 </p>
@@ -986,8 +995,9 @@ export default function SqlScriptGenerator() {
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+    </div>
     </div>
   );
 }
