@@ -16,14 +16,40 @@ import {
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
+// THEME — every color used below comes from this one object. Change #2
+// (light SharePoint-style palette) lives entirely here: swap this object
+// and the whole app re-themes, because nothing below hardcodes a color of
+// its own. This is the standard way to avoid a "find every hex code in the
+// file" hunt every time a client asks for a color tweak.
+// ---------------------------------------------------------------------------
+const theme = {
+  pageBg: "#F3F5F9",
+  cardBg: "#FFFFFF",
+  cardBorder: "#E3E7EF",
+  cardShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)",
+  textPrimary: "#1B2437",
+  textSecondary: "#6B7488",
+  textMuted: "#9AA3B5",
+  brandBlue: "#0B5FA5",
+  brandBlueDark: "#084A82",
+  brandBlueLight: "#EAF3FC",
+  brandBlueBorder: "#BFDBF7",
+  accentOrange: "#F2994A",
+  accentOrangeDark: "#D9822B",
+  success: "#1E9E6A",
+  successBg: "#E9F8F1",
+  danger: "#D64545",
+  dangerBg: "#FDEEEE",
+  dangerBorder: "#F6C6C6",
+  codeBg: "#F6F8FB",
+  codeBorder: "#E1E6EF",
+  codeText: "#1F2A44",
+};
+
+// ---------------------------------------------------------------------------
 // HELPERS — the actual "engine". Everything else in this file is UI wiring.
 // ---------------------------------------------------------------------------
 
-// FIX (change #6): earlier this matched ANY column with "date" in the name
-// (DUE_DATE, EFFECTIVE_DATE, etc.) which was wrong — it should only fire for
-// CREATED_DATE / MODIFIED_DATE. We normalize the header (strip spaces/
-// underscores, uppercase) so "Created_Date", "CREATEDDATE" and "created date"
-// all still match, but something like "DUE_DATE" correctly does NOT.
 const isAutoTimestampColumn = (header) => {
   const normalized = header.toUpperCase().replace(/[^A-Z]/g, "");
   return (
@@ -32,8 +58,6 @@ const isAutoTimestampColumn = (header) => {
   );
 };
 
-// SQL escapes a literal single quote by doubling it: O'Brien -> 'O''Brien'.
-// This is NOT the same rule as JS/Python string escaping — worth remembering.
 const escapeSqlString = (value) => String(value).replace(/'/g, "''");
 
 const formatValue = (header, rawValue) => {
@@ -45,36 +69,43 @@ const formatValue = (header, rawValue) => {
   return `'${escapeSqlString(rawValue)}'`;
 };
 
-// keyColumns = which columns go in the WHERE clause of IF NOT EXISTS.
-// This is independent from which columns get inserted — you can check
-// uniqueness on a column that isn't even part of the INSERT list.
-const buildWhereClause = (row, keyColumns) =>
-  keyColumns.map((col) => `${col}=${formatValue(col, row[col])}`).join(" AND ");
+// columnOverrides = { originalHeader: "RENAMED_DB_COLUMN" }. Change #3 feeds
+// this in — the WHERE clause needs the *renamed* column too, since that's
+// the name that actually exists in the real database table.
+const buildWhereClause = (row, keyColumns, columnOverrides = {}) =>
+  keyColumns
+    .map((col) => `${columnOverrides[col] || col}=${formatValue(col, row[col])}`)
+    .join(" AND ");
 
-// insertHeaders = which columns actually appear in the INSERT column/value
-// list. This is the "include in script" checkbox set (change #3).
-const buildRowScript = (tableName, insertHeaders, row, keyColumns) => {
-  const whereClause = buildWhereClause(row, keyColumns);
-  const columnList = insertHeaders.map((h) => `[${h}]`).join(",");
-  const valueList = insertHeaders.map((h) => formatValue(h, row[h])).join(",");
+// insertColumnPairs = [{ original, display }]. "original" is the Excel
+// header (used to read the right value out of the row). "display" is
+// whatever the user renamed it to for the SQL column list — defaults to
+// "original" if they never touched it.
+const buildRowScript = (tableName, insertColumnPairs, row, keyColumns, columnOverrides) => {
+  const whereClause = buildWhereClause(row, keyColumns, columnOverrides);
+  const columnList = insertColumnPairs.map((p) => `[${p.display}]`).join(",");
+  const valueList = insertColumnPairs
+    .map((p) => formatValue(p.original, row[p.original]))
+    .join(",");
 
   return (
     `IF NOT EXISTS (SELECT 1 FROM dbo.${tableName} WHERE ${whereClause})\n` +
     ` BEGIN \n` +
     ` INSERT dbo.${tableName} (${columnList})\n` +
     ` VALUES (${valueList})\n` +
-    ` END \n` 
-    
+    ` END \n`
   );
 };
 
-const buildTableScript = (sheet, tableName, keyColumns, insertColumns, identityInsert) => {
-  const insertHeaders = sheet.headers.filter((h) => insertColumns.has(h));
+const buildTableScript = (sheet, tableName, keyColumns, insertColumns, columnOverrides, identityInsert) => {
+  const insertColumnPairs = sheet.headers
+    .filter((h) => insertColumns.has(h))
+    .map((h) => ({ original: h, display: (columnOverrides[h] || "").trim() || h }));
   const parts = [];
 
   if (identityInsert) parts.push(`SET IDENTITY_INSERT ${tableName} ON\n`);
   sheet.rows.forEach((row) => {
-    parts.push(buildRowScript(tableName, insertHeaders, row, keyColumns));
+    parts.push(buildRowScript(tableName, insertColumnPairs, row, keyColumns, columnOverrides));
   });
   if (identityInsert) parts.push(`SET IDENTITY_INSERT ${tableName} OFF `);
 
@@ -95,9 +126,9 @@ const downloadTextFile = (filename, text) => {
 
 // ---------------------------------------------------------------------------
 // SMALL REUSABLE PIECE: multi-select dropdown (checkbox list inside a
-// popover). Used for picking the WHERE/key columns (change #1).
+// popover). Used for picking the WHERE/key columns.
 // ---------------------------------------------------------------------------
-function MultiSelectDropdown({ label, options, selected, onToggle }) {
+function MultiSelectDropdown({ options, selected, onToggle }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -125,9 +156,9 @@ function MultiSelectDropdown({ label, options, selected, onToggle }) {
           alignItems: "center",
           padding: "9px 12px",
           borderRadius: 8,
-          border: `1px solid ${selected.size > 0 ? "#1E8FE0" : "#25324A"}`,
-          background: "#0B1220",
-          color: selected.size > 0 ? "#EAF4FF" : "#7C8AA5",
+          border: `1px solid ${selected.size > 0 ? theme.brandBlue : theme.cardBorder}`,
+          background: selected.size > 0 ? theme.brandBlueLight : "#FBFCFE",
+          color: selected.size > 0 ? theme.brandBlueDark : theme.textSecondary,
           fontSize: 12.5,
           cursor: "pointer",
           textAlign: "left",
@@ -154,13 +185,13 @@ function MultiSelectDropdown({ label, options, selected, onToggle }) {
             left: 0,
             right: 0,
             zIndex: 20,
-            background: "#111C33",
-            border: "1px solid #25324A",
+            background: theme.cardBg,
+            border: `1px solid ${theme.cardBorder}`,
             borderRadius: 10,
             padding: 8,
             maxHeight: 220,
             overflowY: "auto",
-            boxShadow: "0 12px 28px rgba(0,0,0,0.4)",
+            boxShadow: "0 12px 28px rgba(16,24,40,0.14)",
           }}
         >
           {options.map((opt) => {
@@ -176,14 +207,15 @@ function MultiSelectDropdown({ label, options, selected, onToggle }) {
                   borderRadius: 6,
                   fontSize: 12.5,
                   cursor: "pointer",
-                  background: checked ? "rgba(30,143,224,0.12)" : "transparent",
+                  color: theme.textPrimary,
+                  background: checked ? theme.brandBlueLight : "transparent",
                 }}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggle(opt)}
-                  style={{ accentColor: "#1E8FE0" }}
+                  style={{ accentColor: theme.brandBlue }}
                 />
                 {opt}
               </label>
@@ -201,32 +233,35 @@ function MultiSelectDropdown({ label, options, selected, onToggle }) {
 
 export default function SqlScriptGenerator() {
   const [sheets, setSheets] = useState([]); // [{id, originalName, sourceFile, headers, rows}]
-  const [fileNames, setFileNames] = useState([]); // multiple files can be loaded now
+  const [fileNames, setFileNames] = useState([]);
   const [activeId, setActiveId] = useState(null);
-  const [configs, setConfigs] = useState({}); // { [id]: {tableName, keyColumns:Set, insertColumns:Set, identityInsert, generated} }
+  const [configs, setConfigs] = useState({}); // { [id]: {tableName, keyColumns:Set, insertColumns:Set, columnNameOverrides:{}, identityInsert, generated} }
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  // Every parsed file gets a unique batch number so sheet IDs never collide,
-  // even if two files share a name or a sheet name (e.g. two workbooks that
-  // each have a "Sheet1"). A plain incrementing ref survives across renders
-  // without itself causing a re-render the way state would.
+  // Column-rename state (change #3). Only one column can be "in edit mode"
+  // at a time, so a single string is enough instead of a Set.
+  const [editingHeader, setEditingHeader] = useState(null);
+  const [editValue, setEditValue] = useState("");
+
   const fileBatchRef = useRef(0);
 
   const activeSheet = sheets.find((s) => s.id === activeId);
   const activeConfig = activeSheet ? configs[activeSheet.id] : null;
 
-  // The white strip you saw is the page's own <html>/<body> background
-  // showing through wherever our component doesn't reach (e.g. below a
-  // short upload box). Painting them the same color as our container
-  // closes that gap no matter how tall the surrounding page is.
+  // Close any in-progress column rename whenever you switch sheets, so you
+  // don't end up editing sheet A's column while looking at sheet B.
+  useEffect(() => {
+    setEditingHeader(null);
+  }, [activeId]);
+
   useEffect(() => {
     const prevBodyBg = document.body.style.background;
     const prevHtmlBg = document.documentElement.style.background;
-    document.body.style.background = "#0B1220";
+    document.body.style.background = theme.pageBg;
     document.body.style.margin = "0";
-    document.documentElement.style.background = "#0B1220";
+    document.documentElement.style.background = theme.pageBg;
     document.documentElement.style.height = "100%";
     document.body.style.minHeight = "100vh";
     return () => {
@@ -235,12 +270,6 @@ export default function SqlScriptGenerator() {
     };
   }, []);
 
-  // Parses ONE file's ArrayBuffer into sheet objects + their default configs.
-  // This is a pure function — it returns data instead of calling setState —
-  // which is what lets handleFiles() below process several files and merge
-  // them all into state with a single update, instead of one state update
-  // per file (which would cause each file's update to briefly overwrite the
-  // previous one when they happen close together).
   const parseOneFile = (arrayBuffer, name) => {
     const batch = fileBatchRef.current++;
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
@@ -266,6 +295,7 @@ export default function SqlScriptGenerator() {
         tableName: s.originalName,
         keyColumns: new Set(),
         insertColumns: new Set(s.headers),
+        columnNameOverrides: {},
         identityInsert: false,
         generated: null,
       };
@@ -274,9 +304,6 @@ export default function SqlScriptGenerator() {
     return { parsedSheets, newConfigs };
   };
 
-  // Reads a File as an ArrayBuffer, wrapped in a Promise so we can use
-  // await instead of nesting callbacks — much easier to read once you're
-  // processing a whole list of files one after another.
   const readFileAsArrayBuffer = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -285,10 +312,6 @@ export default function SqlScriptGenerator() {
       reader.readAsArrayBuffer(file);
     });
 
-  // Accepts a FileList (from <input multiple> or a multi-file drag-drop),
-  // validates and parses every file, and appends everything onto whatever
-  // is already loaded — so uploading a second file doesn't wipe out the
-  // first one's sheets.
   const handleFiles = useCallback(async (fileList) => {
     const files = Array.from(fileList || []);
     if (files.length === 0) return;
@@ -357,6 +380,25 @@ export default function SqlScriptGenerator() {
     });
   };
 
+  // --- column rename handlers (change #3) ---
+  const startEditingColumn = (header) => {
+    setEditingHeader(header);
+    setEditValue(activeConfig?.columnNameOverrides?.[header] || header);
+  };
+
+  const commitColumnRename = (header) => {
+    const trimmed = editValue.trim();
+    updateConfig(activeSheet.id, {
+      columnNameOverrides: {
+        ...(activeConfig.columnNameOverrides || {}),
+        [header]: trimmed || header,
+      },
+    });
+    setEditingHeader(null);
+  };
+
+  const cancelColumnRename = () => setEditingHeader(null);
+
   const deleteSheet = (id) => {
     setSheets((prev) => {
       const next = prev.filter((s) => s.id !== id);
@@ -381,7 +423,7 @@ export default function SqlScriptGenerator() {
       );
       if (hasEmpty) {
         setError(`Error: The column "${col}" selected in your WHERE clause contains empty values. Please clean your data.`);
-        return; 
+        return;
       }
     }
     if (!cfg.tableName.trim()) {
@@ -404,9 +446,9 @@ export default function SqlScriptGenerator() {
       cfg.tableName.trim(),
       Array.from(cfg.keyColumns),
       cfg.insertColumns,
+      cfg.columnNameOverrides || {},
       cfg.identityInsert
     );
-    updateConfig(activeSheet.id, {}); // no-op patch keeps generated below intact
     setConfigs((prev) => ({
       ...prev,
       [activeSheet.id]: { ...prev[activeSheet.id], generated: script },
@@ -446,25 +488,40 @@ export default function SqlScriptGenerator() {
   };
 
   const panelStyle = {
-    background: "#0F1830",
-    border: "1px solid #1B2740",
-    borderRadius: 14,
+    background: theme.cardBg,
+    border: `1px solid ${theme.cardBorder}`,
+    borderRadius: 12,
+    boxShadow: theme.cardShadow,
     padding: 16,
+  };
+
+  const outlineButtonStyle = {
+    fontSize: 12,
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "6px 11px",
+    borderRadius: 7,
+    border: `1px solid ${theme.brandBlueBorder}`,
+    background: theme.brandBlueLight,
+    color: theme.brandBlueDark,
+    cursor: "pointer",
+    fontWeight: 600,
   };
 
   return (
     <div
       style={{
         fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif",
-        background: "#0B1220",
+        background: theme.pageBg,
         minHeight: "100vh",
         width: "100%",
         boxSizing: "border-box",
-        color: "#E5EAF2",
-        padding: "28px 20px",
+        color: theme.textPrimary,
+        padding: "24px 28px",
       }}
     >
-      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1440, margin: "0 auto" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
           <div
@@ -472,20 +529,20 @@ export default function SqlScriptGenerator() {
               width: 40,
               height: 40,
               borderRadius: 10,
-              background: "linear-gradient(135deg, #1E8FE0, #0B5FA5)",
+              background: `linear-gradient(135deg, ${theme.brandBlue}, ${theme.brandBlueDark})`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <Database size={20} color="#EAF4FF" />
+            <Database size={20} color="#FFFFFF" />
           </div>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.01em", color: theme.textPrimary }}>
               SQL Script Generator
             </h1>
-            <p style={{ fontSize: 13, color: "#7C8AA5", margin: 0 }}>
+            <p style={{ fontSize: 13, color: theme.textSecondary, margin: 0 }}>
               Sheet name suggests the table name — you can rename it. Row 1 becomes the columns.
             </p>
           </div>
@@ -506,27 +563,28 @@ export default function SqlScriptGenerator() {
             }}
             style={{
               marginTop: 24,
-              border: `2px dashed ${isDragging ? "#1E8FE0" : "#25324A"}`,
+              border: `2px dashed ${isDragging ? theme.brandBlue : theme.cardBorder}`,
               borderRadius: 14,
               padding: "56px 24px",
               textAlign: "center",
-              background: isDragging ? "rgba(30,143,224,0.06)" : "#0F1830",
+              background: isDragging ? theme.brandBlueLight : theme.cardBg,
+              boxShadow: theme.cardShadow,
               transition: "border-color 120ms ease, background 120ms ease",
             }}
           >
-            <Upload size={30} color="#4A5A78" style={{ marginBottom: 12 }} />
-            <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 600 }}>
+            <Upload size={30} color={theme.brandBlue} style={{ marginBottom: 12 }} />
+            <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 600, color: theme.textPrimary }}>
               Drop one or more .xlsx files here, or click to browse
             </p>
-            <p style={{ margin: "0 0 18px", fontSize: 13, color: "#7C8AA5" }}>
+            <p style={{ margin: "0 0 18px", fontSize: 13, color: theme.textSecondary }}>
               Every sheet, across every file, becomes a table. First row must be column headers.
             </p>
             <label
               style={{
                 display: "inline-block",
-                padding: "10px 20px",
+                padding: "10px 22px",
                 borderRadius: 8,
-                background: "#1E8FE0",
+                background: theme.brandBlue,
                 color: "#fff",
                 fontSize: 13,
                 fontWeight: 600,
@@ -551,13 +609,13 @@ export default function SqlScriptGenerator() {
               marginTop: 16,
               padding: "10px 14px",
               borderRadius: 8,
-              background: "rgba(224,63,63,0.1)",
-              border: "1px solid rgba(224,63,63,0.35)",
+              background: theme.dangerBg,
+              border: `1px solid ${theme.dangerBorder}`,
               display: "flex",
               gap: 8,
               alignItems: "flex-start",
               fontSize: 13,
-              color: "#FF9B9B",
+              color: theme.danger,
             }}
           >
             <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -565,7 +623,7 @@ export default function SqlScriptGenerator() {
           </div>
         )}
 
-        {/* 3-column working area */}
+        {/* 3-column working area: sheets | configure+preview | export */}
         {sheets.length > 0 && (
           <div style={{ marginTop: 22 }}>
             <div
@@ -576,7 +634,7 @@ export default function SqlScriptGenerator() {
                 marginBottom: 14,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#7C8AA5", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: theme.textSecondary, overflow: "hidden" }}>
                 <FileSpreadsheet size={15} style={{ flexShrink: 0 }} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {fileNames.join(", ")}
@@ -585,14 +643,7 @@ export default function SqlScriptGenerator() {
                 <span style={{ flexShrink: 0 }}>{sheets.length} sheet{sheets.length > 1 ? "s" : ""}</span>
               </div>
               <div style={{ display: "flex", gap: 14, flexShrink: 0 }}>
-                <label
-                  style={{
-                    fontSize: 12,
-                    color: "#4FB3FF",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
+                <label style={{ fontSize: 12, color: theme.brandBlue, cursor: "pointer", fontWeight: 600 }}>
                   Add more files
                   <input
                     type="file"
@@ -606,7 +657,7 @@ export default function SqlScriptGenerator() {
                   onClick={reset}
                   style={{
                     fontSize: 12,
-                    color: "#7C8AA5",
+                    color: theme.textSecondary,
                     background: "none",
                     border: "none",
                     cursor: "pointer",
@@ -618,10 +669,10 @@ export default function SqlScriptGenerator() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-              {/* LEFT: sheet list, grouped by source file once there's more than one */}
-              <div style={{ ...panelStyle, width: 240, flexShrink: 0 }}>
-                <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7C8AA5", margin: "0 0 10px" }}>
+            <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
+              {/* LEFT: sheet list */}
+              <div style={{ ...panelStyle, width: 230, flexShrink: 0 }}>
+                <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, margin: "0 0 10px", fontWeight: 700 }}>
                   Sheets
                 </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -634,7 +685,7 @@ export default function SqlScriptGenerator() {
                           <p
                             style={{
                               fontSize: 10.5,
-                              color: "#4A5A78",
+                              color: theme.textMuted,
                               margin: fileIdx === 0 ? "0 0 5px" : "12px 0 5px",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
@@ -659,18 +710,21 @@ export default function SqlScriptGenerator() {
                                   justifyContent: "space-between",
                                   padding: "8px 10px",
                                   borderRadius: 8,
-                                  border: isActive ? "1px solid #1E8FE0" : "1px solid #1B2740",
-                                  background: isActive ? "rgba(30,143,224,0.12)" : "transparent",
+                                  borderLeft: isActive ? `3px solid ${theme.brandBlue}` : "3px solid transparent",
+                                  border: isActive ? `1px solid ${theme.brandBlueBorder}` : "1px solid transparent",
+                                  borderLeftWidth: 3,
+                                  borderLeftColor: isActive ? theme.brandBlue : "transparent",
+                                  background: isActive ? theme.brandBlueLight : "transparent",
                                   cursor: "pointer",
                                 }}
                               >
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-                                  <Table2 size={13} style={{ flexShrink: 0 }} />
+                                  <Table2 size={13} color={isActive ? theme.brandBlue : theme.textMuted} style={{ flexShrink: 0 }} />
                                   <span
                                     style={{
                                       fontSize: 12.5,
                                       fontWeight: isActive ? 700 : 500,
-                                      color: isActive ? "#EAF4FF" : "#B7C1D6",
+                                      color: isActive ? theme.brandBlueDark : theme.textPrimary,
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
                                       whiteSpace: "nowrap",
@@ -678,7 +732,7 @@ export default function SqlScriptGenerator() {
                                   >
                                     {cfg?.tableName || s.originalName}
                                   </span>
-                                  {cfg?.generated && <CheckCircle2 size={12} color="#3BC48B" style={{ flexShrink: 0 }} />}
+                                  {cfg?.generated && <CheckCircle2 size={12} color={theme.success} style={{ flexShrink: 0 }} />}
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -689,7 +743,7 @@ export default function SqlScriptGenerator() {
                                   style={{
                                     background: "none",
                                     border: "none",
-                                    color: "#5A6B8A",
+                                    color: theme.textMuted,
                                     cursor: "pointer",
                                     padding: 2,
                                     flexShrink: 0,
@@ -706,251 +760,301 @@ export default function SqlScriptGenerator() {
                   })}
                 </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: "1 1 380px", minWidth: 300 }}>
-              {/* MIDDLE: configuration */}
-              <div style={{ ...panelStyle, width: "100%" }}>
-                {!activeSheet ? (
-                  <p style={{ fontSize: 13, color: "#7C8AA5" }}>No sheet selected.</p>
-                ) : (
-                  <>
-                    <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7C8AA5", margin: "0 0 12px" }}>
-                      Configure
-                    </p>
 
-                    {/* Editable table name — change #2 */}
-                    <label style={{ fontSize: 12, color: "#7C8AA5", display: "block", marginBottom: 6 }}>
-                      Table name
-                    </label>
-                    <div style={{ position: "relative", marginBottom: 16 }}>
-                      <Pencil size={12} style={{ position: "absolute", right: 10, top: 11, color: "#5A6B8A" }} />
-                      <input
-                        type="text"
-                        value={activeConfig.tableName}
-                        onChange={(e) => updateConfig(activeSheet.id, { tableName: e.target.value })}
-                        style={{
-                          width: "100%",
-                          padding: "9px 30px 9px 12px",
-                          borderRadius: 8,
-                          border: "1px solid #25324A",
-                          background: "#0B1220",
-                          color: "#EAF4FF",
-                          fontSize: 13,
-                          fontFamily: "monospace",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </div>
+              {/* MIDDLE: configure (top) + preview (below) — change #1 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 18, flex: "2 1 480px", minWidth: 340 }}>
+                <div style={panelStyle}>
+                  {!activeSheet ? (
+                    <p style={{ fontSize: 13, color: theme.textSecondary }}>No sheet selected.</p>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, margin: "0 0 12px", fontWeight: 700 }}>
+                        Configure
+                      </p>
 
-                    {/* Key column dropdown — change #1 */}
-                    <label style={{ fontSize: 12, color: "#7C8AA5", display: "block", marginBottom: 6 }}>
-                      IF NOT EXISTS - Unique Key
-                    </label>
-                    <div style={{ marginBottom: 16 }}>
-                      <MultiSelectDropdown
-                        options={activeSheet.headers}
-                        selected={activeConfig.keyColumns}
-                        onToggle={(col) => toggleKeyColumn(activeSheet.id, col)}
-                      />
-                    </div>
-
-                    {/* Insert column checkboxes — change #3 */}
-                    <label style={{ fontSize: 12, color: "#7C8AA5", display: "block", marginBottom: 6 }}>
-                      Columns to include in the INSERT
-                    </label>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-                        gap: 6,
-                        marginBottom: 16,
-                        maxHeight: 190,
-                        overflowY: "auto",
-                        paddingRight: 2,
-                      }}
-                    >
-                      {activeSheet.headers.map((h) => {
-                        const checked = activeConfig.insertColumns.has(h);
-                        return (
-                          <label
-                            key={h}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                              padding: "6px 8px",
-                              borderRadius: 6,
-                              border: `1px solid ${checked ? "#1E8FE0" : "#25324A"}`,
-                              background: checked ? "rgba(30,143,224,0.08)" : "transparent",
-                              fontSize: 11.5,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleInsertColumn(activeSheet.id, h)}
-                              style={{ accentColor: "#1E8FE0" }}
-                            />
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {h}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-
-                    {/* Identity insert */}
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontSize: 13,
-                        marginBottom: 18,
-                        cursor: "pointer",
-                        color: "#D6DCEA",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={activeConfig.identityInsert}
-                        onChange={() =>
-                          updateConfig(activeSheet.id, { identityInsert: !activeConfig.identityInsert })
-                        }
-                        style={{ accentColor: "#1E8FE0" }}
-                      />
-                      Wrap with SET IDENTITY_INSERT ON / OFF
-                    </label>
-
-                    <button
-                      onClick={generateForActiveSheet}
-                      style={{
-                        width: "100%",
-                        padding: "10px 18px",
-                        borderRadius: 8,
-                        background: "#1E8FE0",
-                        color: "#fff",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        border: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Generate SQL for this table
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* RIGHT: output + export */}
-              <div style={{ ...panelStyle, width: "100%"}}>
-                <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "#7C8AA5", margin: "0 0 12px" }}>
-                  Output
-                </p>
-
-                {activeConfig?.generated ? (
-                  <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: "#7C8AA5", fontFamily: "monospace" }}>
-                        {activeConfig.tableName}.sql
-                      </span>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          onClick={() => copyToClipboard(activeConfig.generated, activeSheet.id)}
+                      {/* Editable table name */}
+                      <label style={{ fontSize: 12, color: theme.textSecondary, display: "block", marginBottom: 6 }}>
+                        Table name
+                      </label>
+                      <div style={{ position: "relative", marginBottom: 16 }}>
+                        <Pencil size={12} style={{ position: "absolute", right: 10, top: 11, color: theme.textMuted }} />
+                        <input
+                          type="text"
+                          value={activeConfig.tableName}
+                          onChange={(e) => updateConfig(activeSheet.id, { tableName: e.target.value })}
                           style={{
-                            fontSize: 12,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "5px 10px",
-                            borderRadius: 6,
-                            border: "1px solid #25324A",
-                            background: "transparent",
-                            color: "#B7C1D6",
-                            cursor: "pointer",
+                            width: "100%",
+                            padding: "9px 30px 9px 12px",
+                            borderRadius: 8,
+                            border: `1px solid ${theme.cardBorder}`,
+                            background: "#FBFCFE",
+                            color: theme.textPrimary,
+                            fontSize: 13,
+                            fontFamily: "monospace",
+                            boxSizing: "border-box",
                           }}
-                        >
-                          {copiedId === activeSheet.id ? <Check size={12} /> : <Copy size={12} />}
-                          {copiedId === activeSheet.id ? "Copied" : "Copy"}
-                        </button>
-                        <button
-                          onClick={() =>
-                            downloadTextFile(`${activeConfig.tableName}.sql`, activeConfig.generated)
-                          }
-                          style={{
-                            fontSize: 12,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "5px 10px",
-                            borderRadius: 6,
-                            border: "1px solid #25324A",
-                            background: "transparent",
-                            color: "#B7C1D6",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <Download size={12} /> Export
-                        </button>
+                        />
                       </div>
-                    </div>
-                    <pre
-                      style={{
-                        background: "#080D1A",
-                        border: "1px solid #1B2740",
-                        borderRadius: 10,
-                        padding: "14px 14px 20px",
-                        fontSize: 11.5,
-                        lineHeight: 1.6,
-                        color: "#9FE6B8",
-                        overflow: "auto",
-                        height: 320,
-                        minHeight: 140,
-                        maxHeight: "70vh",
-                        resize: "vertical",
-                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                        margin: 0,
-                        whiteSpace: "pre",
-                      }}
-                    >
-                      {activeConfig.generated}
-                    </pre>
-                    <p style={{ fontSize: 10.5, color: "#4A5A78", margin: "6px 0 0", textAlign: "right" }}>
-                      Drag the bottom-right corner to resize ↘
-                    </p>
-                  </>
-                ) : (
-                  <p style={{ fontSize: 12.5, color: "#5A6B8A" }}>
-                    Configure the table on the left, then generate to see the script here.
-                  </p>
-                )}
 
-                {/* Per-table export list once more than one has been generated */}
-                {generatedSheets.length > 0 && (
-                  <div style={{ marginTop: 20, borderTop: "1px solid #1B2740", paddingTop: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, color: "#7C8AA5" }}>
-                        Generated tables ({generatedSheets.length})
-                      </span>
-                      <button
-                        onClick={() => downloadTextFile("all_tables.sql", combinedScript)}
+                      {/* Key column dropdown */}
+                      <label style={{ fontSize: 12, color: theme.textSecondary, display: "block", marginBottom: 6 }}>
+                        IF NOT EXISTS - Unique Key
+                      </label>
+                      <div style={{ marginBottom: 16 }}>
+                        <MultiSelectDropdown
+                          options={activeSheet.headers}
+                          selected={activeConfig.keyColumns}
+                          onToggle={(col) => toggleKeyColumn(activeSheet.id, col)}
+                        />
+                      </div>
+
+                      {/* Insert column checkboxes, now with per-column rename — change #3 */}
+                      <label style={{ fontSize: 12, color: theme.textSecondary, display: "block", marginBottom: 6 }}>
+                        Columns to include in the INSERT
+                        <span style={{ color: theme.textMuted, fontWeight: 400 }}> (pencil renames the DB column)</span>
+                      </label>
+                      <div
                         style={{
-                          fontSize: 12,
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
+                          gap: 6,
+                          marginBottom: 16,
+                          maxHeight: 220,
+                          overflowY: "auto",
+                          paddingRight: 2,
+                        }}
+                      >
+                        {activeSheet.headers.map((h) => {
+                          const checked = activeConfig.insertColumns.has(h);
+                          const overrideName = activeConfig.columnNameOverrides?.[h];
+                          const isRenamed = overrideName && overrideName !== h;
+                          const isEditing = editingHeader === h;
+                          return (
+                            <div
+                              key={h}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 4,
+                                padding: "6px 6px 6px 8px",
+                                borderRadius: 6,
+                                border: `1px solid ${checked ? theme.brandBlue : theme.cardBorder}`,
+                                background: checked ? theme.brandBlueLight : "#FBFCFE",
+                                fontSize: 11.5,
+                              }}
+                            >
+                              <label
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  overflow: "hidden",
+                                  cursor: "pointer",
+                                  flex: 1,
+                                  minWidth: 0,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleInsertColumn(activeSheet.id, h)}
+                                  style={{ accentColor: theme.brandBlue, flexShrink: 0 }}
+                                />
+                                {isEditing ? (
+                                  <input
+                                    autoFocus
+                                    value={editValue}
+                                    onClick={(e) => e.preventDefault()}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onBlur={() => commitColumnRename(h)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") commitColumnRename(h);
+                                      if (e.key === "Escape") cancelColumnRename();
+                                    }}
+                                    style={{
+                                      width: "100%",
+                                      minWidth: 0,
+                                      fontSize: 11.5,
+                                      padding: "2px 4px",
+                                      borderRadius: 4,
+                                      border: `1px solid ${theme.brandBlue}`,
+                                      background: "#fff",
+                                      color: theme.textPrimary,
+                                    }}
+                                  />
+                                ) : (
+                                  <span
+                                    title={h}
+                                    style={{
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      color: isRenamed ? theme.brandBlueDark : theme.textPrimary,
+                                      fontWeight: isRenamed ? 700 : 500,
+                                    }}
+                                  >
+                                    {overrideName || h}
+                                  </span>
+                                )}
+                              </label>
+                              {!isEditing && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startEditingColumn(h);
+                                  }}
+                                  title={`Rename column (Excel: ${h})`}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: theme.textMuted,
+                                    cursor: "pointer",
+                                    padding: 2,
+                                    flexShrink: 0,
+                                    display: "flex",
+                                  }}
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Identity insert */}
+                      <label
+                        style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 5,
-                          padding: "6px 12px",
-                          borderRadius: 7,
-                          background: "#3BC48B",
-                          color: "#062615",
+                          gap: 8,
+                          fontSize: 13,
+                          marginBottom: 18,
+                          cursor: "pointer",
+                          color: theme.textPrimary,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activeConfig.identityInsert}
+                          onChange={() =>
+                            updateConfig(activeSheet.id, { identityInsert: !activeConfig.identityInsert })
+                          }
+                          style={{ accentColor: theme.brandBlue }}
+                        />
+                        Wrap with SET IDENTITY_INSERT ON / OFF
+                      </label>
+
+                      <button
+                        onClick={generateForActiveSheet}
+                        style={{
+                          width: "100%",
+                          padding: "10px 18px",
+                          borderRadius: 8,
+                          background: theme.brandBlue,
+                          color: "#fff",
+                          fontSize: 13,
                           fontWeight: 700,
                           border: "none",
                           cursor: "pointer",
                         }}
                       >
-                        <Download size={12} /> Export all
+                        Generate SQL for this table
                       </button>
-                    </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Preview only — export controls now live in the right panel (change #1) */}
+                <div style={panelStyle}>
+                  <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, margin: "0 0 12px", fontWeight: 700 }}>
+                    Preview
+                  </p>
+                  {activeConfig?.generated ? (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: theme.textSecondary, fontFamily: "monospace" }}>
+                          {activeConfig.tableName}.sql
+                        </span>
+                        <button
+                          onClick={() => copyToClipboard(activeConfig.generated, activeSheet.id)}
+                          style={outlineButtonStyle}
+                        >
+                          {copiedId === activeSheet.id ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedId === activeSheet.id ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <pre
+                        style={{
+                          background: theme.codeBg,
+                          border: `1px solid ${theme.codeBorder}`,
+                          borderRadius: 10,
+                          padding: "14px 14px 20px",
+                          fontSize: 11.5,
+                          lineHeight: 1.6,
+                          color: theme.codeText,
+                          overflow: "auto",
+                          height: 340,
+                          minHeight: 160,
+                          maxHeight: "65vh",
+                          resize: "vertical",
+                          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                          margin: 0,
+                          whiteSpace: "pre",
+                        }}
+                      >
+                        {activeConfig.generated}
+                      </pre>
+                      <p style={{ fontSize: 10.5, color: theme.textMuted, margin: "6px 0 0", textAlign: "right" }}>
+                        Drag the bottom-right corner to resize ↘
+                      </p>
+                    </>
+                  ) : (
+                    <p style={{ fontSize: 12.5, color: theme.textMuted }}>
+                      Configure the table above, then generate to see the script here.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT: export — change #1 */}
+              <div style={{ ...panelStyle, flex: "1 1 300px", minWidth: 260, maxWidth: 340 }}>
+                <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, margin: "0 0 12px", fontWeight: 700 }}>
+                  Export
+                </p>
+
+                {generatedSheets.length === 0 ? (
+                  <p style={{ fontSize: 12.5, color: theme.textMuted }}>
+                    Generate at least one table to enable export.
+                  </p>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => downloadTextFile("all_tables.sql", combinedScript)}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                        padding: "10px 14px",
+                        borderRadius: 8,
+                        background: theme.accentOrange,
+                        color: "#fff",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        border: "none",
+                        cursor: "pointer",
+                        marginBottom: 14,
+                      }}
+                    >
+                      <Download size={14} /> Export all ({generatedSheets.length})
+                    </button>
+
+                    <p style={{ fontSize: 11, color: theme.textMuted, margin: "0 0 8px", fontWeight: 600 }}>
+                      Individually
+                    </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {generatedSheets.map((s) => (
                         <div
@@ -959,45 +1063,51 @@ export default function SqlScriptGenerator() {
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
-                            padding: "7px 10px",
+                            padding: "8px 10px",
                             borderRadius: 7,
-                            background: "#0B1220",
-                            border: "1px solid #1B2740",
+                            background: "#FBFCFE",
+                            border: `1px solid ${theme.cardBorder}`,
                           }}
                         >
-                          <span style={{ fontSize: 12, fontFamily: "monospace", color: "#B7C1D6" }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontFamily: "monospace",
+                              color: theme.textPrimary,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
                             {configs[s.id].tableName}.sql
                           </span>
                           <button
                             onClick={() =>
                               downloadTextFile(`${configs[s.id].tableName}.sql`, configs[s.id].generated)
                             }
+                            title="Export this table"
                             style={{
-                              fontSize: 11.5,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "4px 9px",
-                              borderRadius: 6,
-                              border: "1px solid #25324A",
-                              background: "transparent",
-                              color: "#B7C1D6",
+                              background: "none",
+                              border: "none",
+                              color: theme.brandBlue,
                               cursor: "pointer",
+                              padding: 2,
+                              flexShrink: 0,
+                              display: "flex",
                             }}
                           >
-                            <Download size={11} /> Export
+                            <Download size={14} />
                           </button>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     </div>
   );
 }
