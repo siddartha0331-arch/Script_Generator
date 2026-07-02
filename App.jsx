@@ -528,7 +528,7 @@ export default function SqlScriptGenerator() {
         width: "100%",
         boxSizing: "border-box",
         color: theme.textPrimary,
-        padding: "0 28px 24px 28px",
+        padding: "0 24px 28px",
       }}
     >
       {/* Add a full-width header strip if you want the blue to go to the edge */}
@@ -719,7 +719,7 @@ export default function SqlScriptGenerator() {
                             padding: "4px 0",
                             color: theme.textPrimary,
                             fontWeight: 700,
-                            fontSize: "10px",
+                            fontSize: "9px",
                             textTransform: "uppercase",
                           }}
                         >
