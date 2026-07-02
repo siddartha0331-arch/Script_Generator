@@ -474,7 +474,7 @@ export default function SqlScriptGenerator() {
           </div>
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
-              Excel → T-SQL Script Generator
+              SQL Script Generator
             </h1>
             <p style={{ fontSize: 13, color: "#7C8AA5", margin: 0 }}>
               Sheet name suggests the table name — you can rename it. Row 1 becomes the columns.
